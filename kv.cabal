@@ -1,0 +1,49 @@
+cabal-version:      3.0
+name:               kv
+version:            0.1.0.0
+synopsis:           A small Redis-like key-value server, for learning Haskell
+build-type:         Simple
+extra-doc-files:    README.md
+
+common shared
+    default-language:   GHC2024
+    default-extensions: OverloadedStrings
+    ghc-options:
+        -Wall -Wcompat -Widentities -Wincomplete-record-updates
+        -Wincomplete-uni-patterns -Wredundant-constraints
+        -Wmissing-deriving-strategies
+    build-depends:
+        base >=4.20 && <5,
+        bytestring,
+        containers,
+
+library
+    import:           shared
+    hs-source-dirs:   src
+    exposed-modules:
+        KV.Command
+        KV.Server
+        KV.Store
+    build-depends:
+        async,
+        network >=3.2,
+        stm,
+
+executable kv
+    import:           shared
+    hs-source-dirs:   app
+    main-is:          Main.hs
+    build-depends:    kv
+    ghc-options:      -threaded -rtsopts "-with-rtsopts=-N"
+
+test-suite spec
+    import:           shared
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Spec.hs
+    build-depends:
+        kv,
+        hspec,
+        QuickCheck,
+        stm,
+    ghc-options:      -threaded
