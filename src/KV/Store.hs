@@ -5,18 +5,18 @@
 -- begin and end: @atomically (execute s a >> execute s b)@ runs both
 -- commands as a single atomic unit, with no locks in sight.
 module KV.Store
-  ( Store
-  , newStore
-  , execute
-  ) where
+  ( Store,
+    newStore,
+    execute,
+  )
+where
 
 import Control.Concurrent.STM
 import Data.ByteString (ByteString)
+import Data.ByteString.Char8 qualified as BC
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe
-import Data.ByteString.Char8 qualified as BC
-
 import KV.Command
 
 newtype Store = Store (TVar (Map ByteString ByteString))
@@ -37,41 +37,45 @@ execute store@(Store tv) =
         else pure (Count 0)
     Incr k -> incrBy 1 k
     IncrBy k sn -> case BC.readInt sn of
-      Nothing                      -> pure errNotInt
-      Just(_, s) | not (BC.null s) -> pure errNotInt
-      Just(n, _)                   -> incrBy n k
+      Nothing -> pure errNotInt
+      Just (_, s) | not (BC.null s) -> pure errNotInt
+      Just (n, _) -> incrBy n k
     Decr k -> incrBy (-1) k
     DecrBy k sn -> case BC.readInt sn of
-      Nothing                      -> pure errNotInt
-      Just(_, s) | not (BC.null s) -> pure errNotInt
-      Just(n, _)                   -> incrBy (-n) k
+      Nothing -> pure errNotInt
+      Just (_, s) | not (BC.null s) -> pure errNotInt
+      Just (n, _) -> incrBy (-n) k
     MSet args -> case pairwise args of
       Just pairs@(_ : _) -> Ok <$ mapM_ (execute store . uncurry Set) pairs
       _ -> pure (Error "ERR wrong number of arguments for 'mset' command")
     MSetNX args -> case pairwise args of
       Just pairs@(_ : _) -> do
         m <- readTVar tv
-        if all (\k -> not (Map.member k m)) (map fst pairs)
+        if all ((\k -> not (Map.member k m)) . fst) pairs
           then Count 1 <$ execute store (MSet args)
           else pure (Count 0)
       _ -> pure (Error "ERR wrong number of arguments for 'msetnx' command")
     MGet [] -> pure (Error "ERR wrong number of arguments for 'mset' command")
-    MGet args -> Array <$> (mapM (execute store . Get) args)
+    MGet args -> Array <$> mapM (execute store . Get) args
+    GetSet k v -> do
+      prev <- execute store (Get k)
+      _ <- execute store (Set k v)
+      return prev
   where
     incrBy :: Int -> ByteString -> STM Reply
     incrBy amount k = do
       m <- readTVar tv
       let prev = fromMaybe "0" (Map.lookup k m)
       case BC.readInt prev of
-        Nothing                      -> pure errNotInt
-        Just(_, s) | not (BC.null s) -> pure errNotInt
-        Just (v, _)                  -> Count (v + amount) <$ modifyTVar' tv (Map.insert k (intToBytestring (v + amount)))
-    
+        Nothing -> pure errNotInt
+        Just (_, s) | not (BC.null s) -> pure errNotInt
+        Just (v, _) -> Count (v + amount) <$ modifyTVar' tv (Map.insert k (intToBytestring (v + amount)))
+
     pairwise :: [ByteString] -> Maybe [(ByteString, ByteString)]
     pairwise = \case
-      []           -> Just []
+      [] -> Just []
       k : v : rest -> ((k, v) :) <$> pairwise rest
-      [_]          -> Nothing
+      [_] -> Nothing
 
 intToBytestring :: Int -> BC.ByteString
 intToBytestring = BC.pack . show

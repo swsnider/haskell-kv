@@ -3,13 +3,12 @@ module Main (main) where
 import Control.Concurrent.STM (atomically)
 import Control.Monad
 import Data.ByteString.Char8 qualified as BC
-import Data.Map.Strict qualified as Map
 import Data.Either (isLeft)
-import Test.Hspec
-import Test.QuickCheck
-
+import Data.Map.Strict qualified as Map
 import KV.Command
 import KV.Store
+import Test.Hspec
+import Test.QuickCheck
 
 main :: IO ()
 main = hspec $ do
@@ -55,7 +54,7 @@ main = hspec $ do
       _ <- atomically $ execute store (Set "k" ((BC.pack . show) initial))
       rs <- replicateM n (atomically $ execute store (Decr "k"))
       actual <- atomically $ execute store (Get "k")
-      pure (rs === map Count [initial - 1, initial - 2 .. initial-n] .&&. actual === Value expected)
+      pure (rs === map Count [initial - 1, initial - 2 .. initial - n] .&&. actual === Value expected)
     forM_ ["abc", "12abc", "1 2"] $ \bad ->
       it ("refuses to decr " <> show bad) $ do
         store <- newStore
@@ -94,12 +93,12 @@ main = hspec $ do
         r `shouldSatisfy` isError
         v <- atomically $ execute store (Get "k")
         v `shouldBe` Value "0"
-    
+
     it "works when performing mset" $ property $ \(Token k) (Token v) (rest :: [(Token, Token)]) -> ioProperty $ do
       let pairs = (k, v) : [(k', v') | (Token k', Token v') <- rest]
-          args  = concat [[a, b] | (a, b) <- pairs]
+          args = concat [[a, b] | (a, b) <- pairs]
           final = Map.fromList pairs
-          keys  = map fst pairs
+          keys = map fst pairs
       store <- newStore
       r <- atomically $ execute store (MSet args)
       rs <- atomically $ execute store (MGet keys)
@@ -112,12 +111,13 @@ main = hspec $ do
       r <- atomically $ execute store (Set k "")
       r2 <- atomically $ execute store (MSetNX args)
       pure (r === Ok .&&. r2 === Count 0)
+
 isError :: Reply -> Bool
 isError = \case
   Error _ -> True
-  _       -> False
+  _ -> False
 
-newtype Token = Token { unToken :: BC.ByteString }
+newtype Token = Token {unToken :: BC.ByteString}
   deriving stock (Show)
 
 instance Arbitrary Token where
@@ -132,7 +132,7 @@ instance Arbitrary AnyCommand where
   arbitrary :: Gen AnyCommand
   arbitrary =
     AnyCommand
-      <$> oneof [pure Ping, Get <$> token, Set <$> token <*> token, Del <$> token, Incr <$> token, IncrBy <$> token <*> int, Decr <$> token, DecrBy <$> token <*> int]
+      <$> oneof [pure Ping, Get <$> token, Set <$> token <*> token, Del <$> token, Incr <$> token, IncrBy <$> token <*> int, Decr <$> token, DecrBy <$> token <*> int, MSet <$> listOf1 token, MSetNX <$> listOf1 token, MGet <$> listOf1 token, GetSet <$> token <*> token]
     where
       token = unToken <$> arbitrary
       int = BC.pack . show <$> arbitrary @Int

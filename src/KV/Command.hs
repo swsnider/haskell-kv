@@ -25,7 +25,8 @@ data Command
   | DecrBy ByteString ByteString
   | MSet [ByteString]
   | MSetNX [ByteString]
-  | MGet [ByteString] 
+  | MGet [ByteString]
+  | GetSet ByteString ByteString
   deriving stock (Eq, Show)
 
 data Reply
@@ -55,6 +56,7 @@ parseCommand line = case BC.words line of
   cmd:args | cmd `is` "MSET"      -> Right (MSet args)
   cmd:args | cmd `is` "MSETNX"    -> Right (MSetNX args)
   cmd:args | cmd `is` "MGET"      -> Right (MGet args)
+  [cmd, k, v] | cmd `is` "GETSET" -> Right (GetSet k v)
   []                              -> Left "ERR empty command"
   (cmd : _)                       -> Left ("ERR unknown command or wrong number of arguments: " <> cmd)
   where
@@ -74,6 +76,7 @@ renderCommand = BC.unwords . \case
   MSet args   -> ["MSET"] <> args
   MSetNX args -> ["MSETNX"] <> args
   MGet args   -> ["MGET"] <> args
+  GetSet k v  -> ["GETSET", k, v]
 
 renderReply :: Reply -> ByteString
 renderReply =
