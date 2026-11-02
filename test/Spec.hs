@@ -112,6 +112,13 @@ main = hspec $ do
             r2 <- atomically $ execute store (MSetNX args)
             pure (r === Ok .&&. r2 === Count 0)
 
+        it "sets and gets with GETSET" $ property $ \(Token k) (Token v) (Token v2) -> ioProperty $ do
+            store <- newStore
+            _ <- atomically $ execute store (Set k v)
+            r <- atomically $ execute store (GetSet k v2)
+            r2 <- atomically $ execute store (Get k)
+            pure (r === Value v .&&. r2 === Value v2)
+
 isError :: Reply -> Bool
 isError = \case
     Error _ -> True
@@ -142,10 +149,12 @@ instance Arbitrary AnyCommand where
                   Decr <$> token,
                   DecrBy <$> token <*> int,
                   MSet <$> listOf1 token,
-                  MSetNX <$> listOf1 token,
+                  MSetNX <$> map unToken <$> (flatten <$> arbitrary),
                   MGet <$> listOf1 token,
                   GetSet <$> token <*> token
                 ]
       where
         token = unToken <$> arbitrary
         int = BC.pack . show <$> arbitrary @Int
+        flatten :: [(Token, Token)] -> [Token]
+        flatten xs = [x | (y, z) <- xs, x <- [y, z]]
