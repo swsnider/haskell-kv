@@ -18,9 +18,17 @@ import Data.ByteString.Char8 qualified as BC
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe
+import Data.Sequence (Seq)
+
+-- import Data.Sequence qualified as Seq
 import KV.Command
 
-newtype Store = Store (TVar (Map ByteString ByteString))
+data StoreValue
+    = StoreString !ByteString
+    | StoreList !(Seq ByteString)
+    deriving stock (Eq, Show)
+
+newtype Store = Store (TVar (Map ByteString StoreValue))
 
 newStore :: IO Store
 newStore = Store <$> newTVarIO Map.empty
@@ -29,8 +37,13 @@ execute :: Store -> Command -> STM Reply
 execute store@(Store tv) =
     \case
         Ping -> pure Pong
-        Get k -> maybe Nil Value . Map.lookup k <$> readTVar tv
-        Set k v -> Ok <$ modifyTVar' tv (Map.insert k v)
+        Get k -> do
+            v <- lookupString k <$> readTVar tv
+            case v of
+                Right Nothing -> pure Nil
+                Right (Just s) -> pure (Value s)
+                Left e -> pure e
+        Set k v -> Ok <$ modifyTVar' tv (Map.insert k (StoreString v))
         Del k -> do
             m <- readTVar tv
             if Map.member k m
@@ -57,20 +70,26 @@ execute store@(Store tv) =
                     else pure (Count 0)
             _ -> pure (Error "ERR wrong number of arguments for 'msetnx' command")
         MGet [] -> pure (Error "ERR wrong number of arguments for 'mset' command")
-        MGet args -> Array <$> mapM (execute store . Get) args
+        MGet args -> do
+            vs <- mapM (execute store . Get) args
+            pure (Array (map (\e -> case e of Error _ -> Nil; x -> x) vs))
         GetSet k v -> do
             prev <- execute store (Get k)
-            _ <- execute store (Set k v)
-            return prev
+            result <- case prev of
+                Array _ -> pure errWrongType
+                _ -> prev <$ execute store (Set k v)
+            pure result
   where
     incrBy :: Int -> ByteString -> STM Reply
     incrBy amount k = do
         m <- readTVar tv
-        let prev = fromMaybe "0" (Map.lookup k m)
-        case BC.readInt prev of
-            Nothing -> pure errNotInt
-            Just (_, s) | not (BC.null s) -> pure errNotInt
-            Just (v, _) -> Count (v + amount) <$ modifyTVar' tv (Map.insert k (intToBytestring (v + amount)))
+        case lookupString k m of
+            Left err -> pure err
+            Right prev -> case BC.readInt (fromMaybe "0" prev) of
+                Nothing -> pure errNotInt
+                Just (_, s) | not (BC.null s) -> pure errNotInt
+                Just (v, _) ->
+                    Count (v + amount) <$ modifyTVar' tv (Map.insert k (StoreString (intToBytestring (v + amount))))
 
     pairwise :: [ByteString] -> Maybe [(ByteString, ByteString)]
     pairwise = \case
@@ -78,11 +97,22 @@ execute store@(Store tv) =
         k : v : rest -> ((k, v) :) <$> pairwise rest
         [_] -> Nothing
 
-intToBytestring :: Int -> BC.ByteString
-intToBytestring = BC.pack . show
+    lookupString :: ByteString -> Map ByteString StoreValue -> Either Reply (Maybe ByteString)
+    lookupString k m = case Map.lookup k m of
+        Nothing -> Right Nothing
+        Just (StoreString s) -> Right (Just s)
+        Just (StoreList _) -> Left errWrongType
+    -- lookupList :: ByteString -> Map ByteString StoreValue -> Either Reply (Seq ByteString) -- missing key = Seq.empty
+    -- lookupList k m = case Map.lookup k m of
+    --     Nothing -> Right Seq.empty
+    --     Just (StoreList l) -> Right l
+    --     Just (StoreString _) -> Left errWrongType
 
--- errWrongType :: Reply
--- errWrongType = Error "WRONGTYPE Operation against a key holding the wrong kind of value"
+    intToBytestring :: Int -> BC.ByteString
+    intToBytestring = BC.pack . show
+
+errWrongType :: Reply
+errWrongType = Error "WRONGTYPE Operation against a key holding the wrong kind of value"
 
 errNotInt :: Reply
 errNotInt = Error "ERR value is not an integer or out of range"
