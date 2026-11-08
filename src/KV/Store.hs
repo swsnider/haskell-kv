@@ -120,5 +120,6 @@ errWrongType = Error "WRONGTYPE Operation against a key holding the wrong kind o
 
 errNotInt :: Reply
 errNotInt = Error "ERR value is not an integer or out of range"
+
 errOverflow :: Reply
 errOverflow = Error "ERR increment or decrement would overflow"
