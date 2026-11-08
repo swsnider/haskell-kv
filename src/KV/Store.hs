@@ -51,15 +51,13 @@ execute store@(Store tv) =
                 then Count 1 <$ writeTVar tv (Map.delete k m)
                 else pure (Count 0)
         Incr k -> incrBy 1 k
-        IncrBy k sn -> case BC.readInt sn of
+        IncrBy k sn -> case redisInt sn of
             Nothing -> pure errNotInt
-            Just (_, s) | not (BC.null s) -> pure errNotInt
-            Just (n, _) -> incrBy n k
+            Just n -> incrBy n k
         Decr k -> incrBy (-1) k
-        DecrBy k sn -> case BC.readInt sn of
+        DecrBy k sn -> case redisInt sn of
             Nothing -> pure errNotInt
-            Just (_, s) | not (BC.null s) -> pure errNotInt
-            Just (n, _) -> incrBy (-n) k
+            Just n -> incrBy (-n) k
         MSet args -> case pairwise args of
             Just pairs@(_ : _) -> Ok <$ mapM_ (execute store . uncurry Set) pairs
             _ -> pure (Error "ERR wrong number of arguments for 'mset' command")
@@ -81,15 +79,23 @@ execute store@(Store tv) =
                 _ -> prev <$ execute store (Set k v)
             pure result
   where
+    redisInt :: ByteString -> Maybe Int
+    redisInt "0" = Just 0
+    redisInt s = case BC.take 1 s of
+        "0" -> Nothing
+        "+" -> Nothing
+        _ -> case BC.readInt s of
+            Just (_, rest) | not $ BC.null rest -> Nothing
+            Just (n, _) -> Just n
+            Nothing -> Nothing
     incrBy :: Int -> ByteString -> STM Reply
     incrBy amount k = do
         m <- readTVar tv
         case lookupString k m of
             Left err -> pure err
-            Right prev -> case BC.readInt (fromMaybe "0" prev) of
+            Right prev -> case redisInt (fromMaybe "0" prev) of
                 Nothing -> pure errNotInt
-                Just (_, s) | not (BC.null s) -> pure errNotInt
-                Just (v, _) ->
+                Just v ->
                     Count (v + amount) <$ modifyTVar' tv (Map.insert k (StoreString (intToBytestring (v + amount))))
 
     pairwise :: [ByteString] -> Maybe [(ByteString, ByteString)]
