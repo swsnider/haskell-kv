@@ -80,14 +80,19 @@ execute store@(Store tv) =
             pure result
   where
     redisInt :: ByteString -> Maybe Int
+    
     redisInt "0" = Just 0
-    redisInt s = case BC.take 1 s of
-        "0" -> Nothing
-        "+" -> Nothing
-        _ -> case BC.readInt s of
-            Just (_, rest) | not $ BC.null rest -> Nothing
-            Just (n, _) -> Just n
-            Nothing -> Nothing
+    redisInt s = case BC.readInt s of
+        Nothing -> Nothing
+        Just (_, rest) | not $ BC.null rest -> Nothing
+        Just (n, _) -> if (BC.pack $ show n) == s then Just n else Nothing
+--    redisInt s = case BC.take 1 s of
+--        "0" -> Nothing
+--        "+" -> Nothing
+--        _ -> case BC.readInt s of
+--            Just (_, rest) | not $ BC.null rest -> Nothing
+--            Just (n, _) -> Just n
+--            Nothing -> Nothing
     incrBy :: Int -> ByteString -> STM Reply
     incrBy amount k = do
         m <- readTVar tv

@@ -40,7 +40,7 @@ main = hspec $ do
             rs <- replicateM n (atomically $ execute store (Incr "k"))
             actual <- atomically $ execute store (Get "k")
             pure (rs === map Count [1 .. n] .&&. actual === Value expected)
-        forM_ ["abc", "12abc", "1 2", "01", "+12"] $ \bad ->
+        forM_ badInts $ \bad ->
             it ("refuses to incr " <> show bad) $ do
                 store <- newStore
                 _ <- atomically $ execute store (Set "k" bad)
@@ -55,7 +55,7 @@ main = hspec $ do
             rs <- replicateM n (atomically $ execute store (Decr "k"))
             actual <- atomically $ execute store (Get "k")
             pure (rs === map Count [initial - 1, initial - 2 .. initial - n] .&&. actual === Value expected)
-        forM_ ["abc", "12abc", "1 2", "01", "+12"] $ \bad ->
+        forM_ badInts $ \bad ->
             it ("refuses to decr " <> show bad) $ do
                 store <- newStore
                 _ <- atomically $ execute store (Set "k" bad)
@@ -70,7 +70,7 @@ main = hspec $ do
             r <- atomically $ execute store (IncrBy "k" ((BC.pack . show) n))
             actual <- atomically $ execute store (Get "k")
             pure (r === Count (initial + n) .&&. actual === Value expected)
-        forM_ ["abc", "12abc", "1 2", "01", "+12"] $ \bad ->
+        forM_ badInts $ \bad ->
             it ("refuses to incrby " <> show bad) $ do
                 store <- newStore
                 _ <- atomically $ execute store (Set "k" "0")
@@ -85,7 +85,7 @@ main = hspec $ do
             r <- atomically $ execute store (DecrBy "k" ((BC.pack . show) n))
             actual <- atomically $ execute store (Get "k")
             pure (r === Count (initial - n) .&&. actual === Value expected)
-        forM_ ["abc", "12abc", "1 2", "01", "+12"] $ \bad ->
+        forM_ badInts $ \bad ->
             it ("refuses to decrby " <> show bad) $ do
                 store <- newStore
                 _ <- atomically $ execute store (Set "k" "0")
@@ -123,6 +123,9 @@ isError :: Reply -> Bool
 isError = \case
     Error _ -> True
     _ -> False
+
+badInts :: [BC.ByteString]
+badInts = ["abc", "12abc", "1 2", "01", "+12", "-012", "-0"]
 
 newtype Token = Token {unToken :: BC.ByteString}
     deriving stock (Show)
