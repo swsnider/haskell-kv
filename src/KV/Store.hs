@@ -57,7 +57,7 @@ execute store@(Store tv) =
         Decr k -> incrBy (-1) k
         DecrBy k sn -> case redisInt sn of
             Nothing -> pure errNotInt
-            Just n -> incrBy (-n) k
+            Just n -> if n == minBound then pure errOverflow else incrBy (-n) k
         MSet args -> case pairwise args of
             Just pairs@(_ : _) -> Ok <$ mapM_ (execute store . uncurry Set) pairs
             _ -> pure (Error "ERR wrong number of arguments for 'mset' command")
@@ -80,19 +80,9 @@ execute store@(Store tv) =
             pure result
   where
     redisInt :: ByteString -> Maybe Int
-    
-    redisInt "0" = Just 0
     redisInt s = case BC.readInt s of
         Nothing -> Nothing
-        Just (_, rest) | not $ BC.null rest -> Nothing
         Just (n, _) -> if (BC.pack $ show n) == s then Just n else Nothing
---    redisInt s = case BC.take 1 s of
---        "0" -> Nothing
---        "+" -> Nothing
---        _ -> case BC.readInt s of
---            Just (_, rest) | not $ BC.null rest -> Nothing
---            Just (n, _) -> Just n
---            Nothing -> Nothing
     incrBy :: Int -> ByteString -> STM Reply
     incrBy amount k = do
         m <- readTVar tv
@@ -100,6 +90,8 @@ execute store@(Store tv) =
             Left err -> pure err
             Right prev -> case redisInt (fromMaybe "0" prev) of
                 Nothing -> pure errNotInt
+                Just v | amount > 0 && v > maxBound - amount -> pure errOverflow
+                Just v | amount < 0 && v < minBound - amount -> pure errOverflow
                 Just v ->
                     Count (v + amount) <$ modifyTVar' tv (Map.insert k (StoreString (intToBytestring (v + amount))))
 
@@ -128,3 +120,5 @@ errWrongType = Error "WRONGTYPE Operation against a key holding the wrong kind o
 
 errNotInt :: Reply
 errNotInt = Error "ERR value is not an integer or out of range"
+errOverflow :: Reply
+errOverflow = Error "ERR increment or decrement would overflow"

@@ -125,7 +125,7 @@ isError = \case
     _ -> False
 
 badInts :: [BC.ByteString]
-badInts = ["abc", "12abc", "1 2", "01", "+12", "-012", "-0"]
+badInts = ["abc", "12abc", "1 2", "01", "+12", "-012", "-0", "9223372036854775808"]
 
 newtype Token = Token {unToken :: BC.ByteString}
     deriving stock (Show)
