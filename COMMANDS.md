@@ -28,21 +28,30 @@ as you'd see them in `redis-cli`: `OK` is a simple string, `"v"` a bulk string,
 
 ---
 
-## Already implemented (check that yours matches)
+## Baseline commands
+
+The starter code implements `PING` (no argument), `GET`, `SET` and
+single-key `DEL`. Below is the full Redis behaviour. Bringing `PING` and
+`DEL` up to it, and adding `EXISTS`, makes a good warm-up.
+
+Bullets marked *(lists)* only apply once you have list values (exercise 4),
+and ones marked *(expiry)* only once you have expiry (exercise 5). Skip them
+until then.
 
 ### `PING [message]`
 - No argument: replies `PONG`.
-- With an argument: replies the argument as a bulk string.
+- With an argument: replies the argument as a bulk string. *(Not in the
+  starter.)*
 
 ### `GET key`
 - The value as a bulk string, or `(nil)` if the key doesn't exist.
-- `WRONGTYPE` if the key holds a list.
+- *(lists)* `WRONGTYPE` if the key holds a list.
 
 ### `SET key value`
 - Always replies `OK`.
 - Overwrites any existing value, **of any type**: `SET` on a list key replaces
   the list with a string.
-- **Clears any expiry** on the key (see exercise 5).
+- *(expiry)* **Clears any expiry** on the key.
 - Real `SET` takes options, which are good optional extras:
   - `NX`: only set if the key doesn't exist.
   - `XX`: only set if it does.
@@ -53,7 +62,7 @@ as you'd see them in `redis-cli`: `OK` is a simple string, `"v"` a bulk string,
   When an `NX` or `XX` condition fails, the reply is `(nil)` instead of `OK`.
 
 ### `DEL key [key ...]`
-- **Takes multiple keys.** Replies `(integer)` with the number of keys that
+- **Takes multiple keys** (the starter only handles one). Replies `(integer)` with the number of keys that
   actually existed and were removed. Missing keys are silently ignored.
 
 ### `EXISTS key [key ...]` (small extra)
@@ -76,8 +85,8 @@ as you'd see them in `redis-cli`: `OK` is a simple string, `"v"` a bulk string,
   On a bad value: `ERR value is not an integer or out of range`.
 - Overflowing past `maxBound` fails with
   `ERR increment or decrement would overflow`, and the value is left unchanged.
-- `WRONGTYPE` if the key holds a list.
-- **Keeps** any existing expiry on the key.
+- *(lists)* `WRONGTYPE` if the key holds a list.
+- *(expiry)* **Keeps** any existing expiry on the key.
 
 ### Related, if you want them
 - `DECR key`: subtract 1.
@@ -94,12 +103,13 @@ as you'd see them in `redis-cli`: `OK` is a simple string, `"v"` a bulk string,
 - Always replies `OK`. It can't fail, except for an odd number of arguments,
   which gives `ERR wrong number of arguments for 'mset' command`.
 - If a key appears twice, the last value wins.
-- Like `SET`, it overwrites any type and clears expiries.
+- Like `SET`, it overwrites any type and *(expiry)* clears expiries.
 
 ### `MGET key [key ...]`
 - Replies with an **array** containing one entry per key, in argument order:
   the value, or `(nil)` if the key is missing.
-- A key holding a list gives `(nil)` in its slot, **not** an error.
+- *(lists)* A key holding a list gives `(nil)` in its slot, **not** an
+  error.
 - `MGET` can't be expressed with your current `Reply` type, so you'll need
   to extend it.
 
@@ -112,8 +122,9 @@ as you'd see them in `redis-cli`: `OK` is a simple string, `"v"` a bulk string,
 ### `GETSET key value`
 - Atomically sets the new value and replies with the **old** value, or
   `(nil)` if there wasn't one.
-- `WRONGTYPE` if the old value is a list. In that case nothing is set.
-- Clears any expiry.
+- *(lists)* `WRONGTYPE` if the old value is a list. In that case nothing is
+  set.
+- *(expiry)* Clears any expiry.
 - Deprecated since Redis 6.2 in favour of `SET key value GET`, which does
   the same thing. Implement whichever you like, or both.
 
@@ -139,7 +150,7 @@ to "a string or a list". `Data.Sequence` gives you O(1) at both ends.
 - Without `count`: removes and replies with one element, or `(nil)` if the
   key is missing.
 - With `count`: an array of up to `count` elements, or `(nil)` if the key is
-  missing.
+  missing. `count` must be non-negative.
 - If that empties the list, **delete the key**.
 
 ### `LLEN key`
@@ -163,14 +174,16 @@ to "a string or a list". `Data.Sequence` gives you O(1) at both ends.
 - If every list is empty or missing, the client **blocks** until another
   client pushes to one of the keys, or until the timeout passes.
 - `timeout` is in seconds and may be fractional (`0.5`). `0` means wait
-  forever.
+  forever. Careful: `System.Timeout.timeout 0` means the opposite (give up
+  immediately), and it takes microseconds.
 - On timeout the reply is a null array, which shows as `(nil)`.
 - Fairness: when several clients block on the same key, Redis serves them
   **in the order they started waiting**. Plain STM `retry` wakes up every
   waiting thread and lets them race, which doesn't give you that order. Decide
   whether you care. Getting first-come-first-served order with STM is a good
   stretch goal.
-- To try it, run `BLPOP q 0` in one `redis-cli` and `RPUSH q hi` in another.
+- To try it, run `BLPOP q 0` in one `ncat localhost 6380` session and
+  `RPUSH q hi` in another.
 
 ---
 
@@ -185,18 +198,20 @@ behaves **exactly as if it doesn't exist** for every command, including
 - Replies `(integer) 1` if the expiry was set and `(integer) 0` if the key
   doesn't exist.
 - Calling it again replaces the previous expiry.
-- A zero or negative duration deletes the key immediately and replies `1`.
+- A zero or negative duration deletes the key immediately and replies `1`
+  (or `0` if the key didn't exist).
 - Optional flags:
   - `NX`: only if the key has no expiry.
   - `XX`: only if it has one.
   - `GT` / `LT`: only if the new expiry is later or earlier than the current
-    one.
+    one. A key with no expiry counts as having an infinite one, so `GT`
+    never applies to it and `LT` always does.
 
   When a flag's condition isn't met, the reply is `0`.
 
 ### `TTL key` / `PTTL key`
 - Remaining time to live in seconds (`TTL`) or milliseconds (`PTTL`), as an
-  integer.
+  integer. `TTL` rounds to the nearest second.
 - `-1` if the key exists but has no expiry.
 - `-2` if the key doesn't exist.
 
@@ -223,22 +238,47 @@ Redis expires keys in two ways at once:
 Lazy expiry alone is always *correct*, but it leaks memory for keys nobody
 reads. The active pass exists only to reclaim memory. In your version, the
 lazy check belongs inside the STM transaction and the active pass is the
-background thread.
+background thread. `Data.Map` has no "random key" operation, but
+`Map.elemAt` gives you the key at an index in O(log n). Alternatively, keep a
+second index of keys ordered by expiry time.
 
-Use a monotonic clock for durations: `GHC.Clock.getMonotonicTime`. Note that
 STM transactions can't do IO, so they can't read the clock themselves. Read
-the time before calling `atomically` and pass it in.
+the time before calling `atomically` and pass it in, which means `execute`
+gains a parameter. One subtlety: a transaction that `retry`s (a blocked
+`BLPOP`) re-runs with the same, increasingly stale, time.
+
+Which clock? `GHC.Clock.getMonotonicTime` is the safe choice for measuring
+durations, because it never jumps backwards. But its values mean nothing
+after a restart, so if you plan to do persistence (exercise 9), store
+absolute wall-clock deadlines instead (`getPOSIXTime` from the `time`
+package, a new dependency).
 
 ---
 
 ## Exercise 6: protocol
 
-See the RESP notes from our earlier conversation, or
-<https://redis.io/docs/latest/develop/reference/protocol-spec/>. In short:
-- **Requests** are arrays of bulk strings.
-- **Replies** use `+` (simple string), `-` (error), `:` (integer), `$` (bulk
-  string, `$-1` for nil) and `*` (array).
+The full spec is at
+<https://redis.io/docs/latest/develop/reference/protocol-spec/>. You only
+need RESP2. In short:
 - Every line ends with `\r\n`.
+- **Requests** are arrays of bulk strings. `SET a 1` arrives as
+  `*3\r\n$3\r\nSET\r\n$1\r\na\r\n$1\r\n1\r\n`: an array header with the
+  element count, then each element as a length line followed by exactly that
+  many bytes. Bulk strings are length-prefixed, so they can contain spaces,
+  newlines and arbitrary bytes.
+- **Replies**:
+  - `+OK\r\n`: simple string.
+  - `-ERR message\r\n`: error.
+  - `:42\r\n`: integer.
+  - `$5\r\nhello\r\n`: bulk string. `$-1\r\n` is the null bulk string
+    (`(nil)` from `GET`).
+  - `*2\r\n` followed by 2 replies: array. `*0\r\n` is the empty array and
+    `*-1\r\n` the null array (the `BLPOP` timeout reply).
+- A chunk from `recv` can hold half a command or several pipelined ones, so
+  your parser has to carry leftover bytes into the next read.
+- Clients send commands you haven't implemented (`redis-cli` sends
+  `COMMAND DOCS` when it starts). Reply with an error and keep the connection
+  open.
 
 Error replies should start with an upper-case code word (`ERR`, `WRONGTYPE`),
 because clients and test suites look at that word.
@@ -265,6 +305,14 @@ valkey-benchmark -p 6380 -t set,get -n 1000000 -c 50 -P 16   # pipelined
 The benchmark sends `CONFIG GET` when it starts. An error reply should only
 produce a warning.
 
+To see GC and allocation statistics, run the server with
+`cabal run kv -- 6380 +RTS -s`. They print when it exits.
+
+When you shard, commands that touch several keys (`MSET`, `MSETNX`, `BLPOP`
+on several lists) still have to be atomic. With STM that just means reading
+and writing several shard `TVar`s inside one `atomically`. With locks you
+would now be worrying about lock ordering and deadlock.
+
 ---
 
 ## Exercise 8: shutdown
@@ -274,6 +322,20 @@ stops accepting connections, finishes the commands in progress, persists if
 persistence is configured, and exits. Clients that are blocked (`BLPOP`) are
 disconnected. You don't need to implement `SHUTDOWN` itself. The signal path
 is the interesting part.
+
+- **SIGINT** (Ctrl-C): GHC's runtime already turns it into a `UserInterrupt`
+  async exception thrown to the main thread, so a `bracket` in `main`
+  already runs. Client threads are not told anything.
+- **SIGTERM** (what `kill` and systemd send): by default it terminates the
+  process with no cleanup. Install a handler with `installHandler` from
+  `System.Posix.Signals` (the `unix` package) that wakes the main thread, for
+  example by filling an `MVar` or throwing it an exception.
+- **"Finish commands in progress"** is mostly free with STM: killing a thread
+  inside `atomically` discards its transaction, so a command is either fully
+  applied or not applied at all. What's left to decide is whether a client
+  gets its reply before its connection closes.
+- To cancel client threads you first need to know what they are. The
+  current server forks them and forgets them.
 
 ---
 
@@ -291,8 +353,9 @@ is the interesting part.
 - Redis rewrites **relative** commands as **absolute** ones before logging
   them. For example, `EXPIRE k 10` is logged as `PEXPIREAT k <unix-ms>`, so
   replaying the log later doesn't restore an expiry 10 seconds from replay
-  time. Ask yourself which of your other commands aren't deterministic on
-  replay.
+  time. That means implementing `PEXPIREAT key unix-time-milliseconds` and
+  storing wall-clock deadlines (see the clock note in exercise 5). Ask
+  yourself which of your other commands aren't deterministic on replay.
 - Over time the log grows without limit. Redis periodically compacts it by
   writing the minimal set of commands that recreates the current state.
 
@@ -303,6 +366,9 @@ is the interesting part.
   snapshot for free, and you can serialise it on another thread while writes
   carry on. This is one of the nicest demonstrations of persistent data
   structures you'll find.
+- If you sharded in exercise 7, separate `readTVarIO` calls on each shard
+  are *not* a consistent snapshot. Read every shard inside one `atomically`.
+  It's still cheap, because you're only grabbing pointers.
 
 ### Replication (simplified)
 Real Redis replication (`REPLICAOF`, `PSYNC`) is involved. A reasonable
