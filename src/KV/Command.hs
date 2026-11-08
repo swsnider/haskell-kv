@@ -16,7 +16,7 @@ import Data.ByteString.Char8 qualified as BC
 import Data.Char (toUpper)
 
 data Command
-    = Ping
+    = Ping (Maybe ByteString)
     | Get ByteString
     | Set ByteString ByteString
     | Del ByteString
@@ -47,7 +47,8 @@ that properly is what the RESP exercise in the README is for.
 -}
 parseCommand :: ByteString -> Either ByteString Command
 parseCommand line = case BC.words line of
-    [cmd] | cmd `is` "PING" -> Right Ping
+    [cmd] | cmd `is` "PING" -> Right (Ping Nothing)
+    [cmd, v] | cmd `is` "PING" -> Right (Ping (Just v))
     [cmd, k] | cmd `is` "GET" -> Right (Get k)
     [cmd, k, v] | cmd `is` "SET" -> Right (Set k v)
     [cmd, k] | cmd `is` "DEL" -> Right (Del k)
@@ -68,7 +69,8 @@ parseCommand line = case BC.words line of
 renderCommand :: Command -> ByteString
 renderCommand =
     BC.unwords . \case
-        Ping -> ["PING"]
+        Ping Nothing -> ["PING"]
+        Ping (Just str) -> ["PING", str]
         Get k -> ["GET", k]
         Set k v -> ["SET", k, v]
         Del k -> ["DEL", k]
@@ -90,7 +92,7 @@ renderReply =
         Nil -> "(nil)"
         Count n -> BC.pack (show n)
         Array [] -> "(empty array)"
-        Array elements -> BC.unlines (zipWith numbered [1 :: Int ..] elements)
+        Array elements -> BC.init $ BC.unlines $ zipWith numbered [1 :: Int ..] elements
         Error e -> e
   where
     numbered i r = BC.pack (show i) <> ") " <> renderReply r

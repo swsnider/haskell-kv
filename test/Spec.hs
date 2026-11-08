@@ -18,7 +18,7 @@ main = hspec $ do
         it "is case-insensitive in the command name" $
             parseCommand "set k v" `shouldBe` Right (Set "k" "v")
         it "tolerates the \\r that telnet and nc send" $
-            parseCommand "PING\r" `shouldBe` Right Ping
+            parseCommand "PING\r" `shouldBe` Right (Ping Nothing)
         it "rejects the wrong number of arguments" $
             parseCommand "GET" `shouldSatisfy` isLeft
         it "round-trips with renderCommand" $ property $ \(AnyCommand c) ->
@@ -140,7 +140,8 @@ instance Arbitrary AnyCommand where
     arbitrary =
         AnyCommand
             <$> oneof
-                [ pure Ping,
+                [ pure (Ping Nothing),
+                  Ping <$> Just <$> token,
                   Get <$> token,
                   Set <$> token <*> token,
                   Del <$> token,

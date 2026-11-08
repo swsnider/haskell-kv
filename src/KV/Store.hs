@@ -36,7 +36,8 @@ newStore = Store <$> newTVarIO Map.empty
 execute :: Store -> Command -> STM Reply
 execute store@(Store tv) =
     \case
-        Ping -> pure Pong
+        Ping Nothing -> pure Pong
+        Ping (Just str) -> pure (Value str)
         Get k -> do
             v <- lookupString k <$> readTVar tv
             case v of
@@ -69,14 +70,14 @@ execute store@(Store tv) =
                     then Count 1 <$ execute store (MSet args)
                     else pure (Count 0)
             _ -> pure (Error "ERR wrong number of arguments for 'msetnx' command")
-        MGet [] -> pure (Error "ERR wrong number of arguments for 'mset' command")
+        MGet [] -> pure (Error "ERR wrong number of arguments for 'mget' command")
         MGet args -> do
             vs <- mapM (execute store . Get) args
             pure (Array (map (\e -> case e of Error _ -> Nil; x -> x) vs))
         GetSet k v -> do
             prev <- execute store (Get k)
             result <- case prev of
-                Array _ -> pure errWrongType
+                Error _ -> pure errWrongType
                 _ -> prev <$ execute store (Set k v)
             pure result
   where
